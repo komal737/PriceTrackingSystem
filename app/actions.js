@@ -5,8 +5,8 @@ import { createClient } from "@/utils/supabase/server";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 
-// ==========================================
-// 1. ADD PRODUCT (Includes your URL Validation & Offers)
+/// ==========================================
+// 1. ADD PRODUCT (Upgraded with Smart Cache)
 // ==========================================
 export async function addProduct(formData) {
   const url = formData.get("url");
@@ -43,28 +43,69 @@ export async function addProduct(formData) {
       return { error: "Not authenticated" };
     }
 
-    // Scrape product data with Firecrawl
-    const productData = await scrapeProduct(url);
+    // ==========================================
+    // 🧠 THE SMART CACHE LOGIC (Saves Credits!)
+    // ==========================================
+    let productData = null;
+    let isCached = false;
 
-    if (!productData.productName || !productData.currentPrice) {
-      console.log(productData, "productData");
-      return { error: "Could not extract product information from this URL" };
+    // 1. Check if ANY user has scraped this exact URL recently
+    const { data: cachedProduct } = await supabase
+      .from("products")
+      .select("*")
+      .eq("url", url)
+      .order("updated_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (cachedProduct) {
+      const lastUpdated = new Date(cachedProduct.updated_at).getTime();
+      const now = new Date().getTime();
+      const hoursSinceUpdate = (now - lastUpdated) / (1000 * 60 * 60);
+
+      // If the data is less than 24 hours old, reuse it!
+      if (hoursSinceUpdate < 24) {
+        console.log("♻️ SMART CACHE HIT! Saving 1 Firecrawl credit.");
+        productData = {
+          productName: cachedProduct.name,
+          currentPrice: cachedProduct.current_price,
+          currencyCode: cachedProduct.currency,
+          productImageUrl: cachedProduct.image_url,
+          inStock: cachedProduct.in_stock,
+          offers: cachedProduct.offers
+        };
+        isCached = true;
+      }
     }
+
+    // 2. If it's not in the cache (or it's older than 24 hours), call Firecrawl
+    if (!isCached) {
+      console.log("🔥 Cache miss or stale data. Calling Firecrawl...");
+      productData = await scrapeProduct(url);
+
+      if (!productData.productName || !productData.currentPrice) {
+        console.log(productData, "productData");
+        return { error: "Could not extract product information from this URL" };
+      }
+    }
+    // ==========================================
+    // END SMART CACHE LOGIC
+    // ==========================================
 
     const newPrice = parseFloat(productData.currentPrice);
     const currency = productData.currencyCode || "USD";
 
-    // Check if product exists to determine if it's an update
-    const { data: existingProduct } = await supabase
+    // Check if THIS user already has this product (for the UI message)
+    const { data: existingUserProduct } = await supabase
       .from("products")
       .select("id, current_price")
       .eq("user_id", user.id)
       .eq("url", url)
-      .single();
+      .maybeSingle();
 
-    const isUpdate = !!existingProduct;
+    const isUpdate = !!existingUserProduct;
 
-  // Upsert product (insert or update based on user_id + url)
+    // Upsert product (insert or update based on user_id + url)
     const { data: product, error } = await supabase
       .from("products")
       .upsert(
@@ -76,7 +117,7 @@ export async function addProduct(formData) {
           currency: currency,
           image_url: productData.productImageUrl,
           in_stock: productData.inStock !== false, 
-          offers: productData.offers || "No special offers detected", // 👇 YOUR ADDED LINE
+          offers: productData.offers || "No special offers detected",
           updated_at: new Date().toISOString(),
         },
         {
@@ -89,6 +130,30 @@ export async function addProduct(formData) {
 
     if (error) throw error;
 
+    // Add to price history if it's a new product OR price changed
+    const shouldAddHistory = !isUpdate || existingUserProduct.current_price !== newPrice;
+
+    if (shouldAddHistory) {
+      await supabase.from("price_history").insert({
+        product_id: product.id,
+        price: newPrice,
+        currency: currency,
+      });
+    }
+
+    revalidatePath("/");
+    return {
+      success: true,
+      product,
+      message: isUpdate
+        ? "Product updated with latest price!"
+        : "Product added successfully!",
+    };
+  } catch (error) {
+    console.error("Add product error:", error);
+    return { error: error.message || "Failed to add product" };
+  }
+}
     // Add to price history if it's a new product OR price changed
     const shouldAddHistory =
       !isUpdate || existingProduct.current_price !== newPrice;
