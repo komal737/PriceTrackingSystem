@@ -1,12 +1,13 @@
 "use server";
 
 import { getLiveAmazonDeals, scrapeProduct, searchCompetitorPrice } from "@/lib/firecrawl";
+import { sendPriceDropAlert } from "@/lib/email"; 
 import { createClient } from "@/utils/supabase/server";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 
-/// ==========================================
-// 1. ADD PRODUCT (Upgraded with Smart Cache)
+// ==========================================
+// 1. ADD PRODUCT (Upgraded with Smart Cache + DEMO EMAIL)
 // ==========================================
 export async function addProduct(formData) {
   const url = formData.get("url");
@@ -130,33 +131,28 @@ export async function addProduct(formData) {
 
     if (error) throw error;
 
+    // --- 🚨 THE DEMO HACK: INSTANT EMAIL TRIGGER 🚨 ---
+    // If this is an update, and the new scraped price is lower than the old DB price...
+    if (isUpdate && newPrice < existingUserProduct.current_price) {
+      console.log("🚨 DEMO MODE: Price drop detected! Firing email instantly...");
+      
+      try {
+        // Send the email right now before the page even finishes loading!
+        await sendPriceDropAlert(
+          user.email, 
+          product, 
+          existingUserProduct.current_price, 
+          newPrice
+        );
+        console.log("✅ Instant email sent successfully!");
+      } catch (emailErr) {
+        console.error("❌ Failed to send instant email:", emailErr);
+      }
+    }
+    // --------------------------------------------------
+
     // Add to price history if it's a new product OR price changed
     const shouldAddHistory = !isUpdate || existingUserProduct.current_price !== newPrice;
-
-    if (shouldAddHistory) {
-      await supabase.from("price_history").insert({
-        product_id: product.id,
-        price: newPrice,
-        currency: currency,
-      });
-    }
-
-    revalidatePath("/");
-    return {
-      success: true,
-      product,
-      message: isUpdate
-        ? "Product updated with latest price!"
-        : "Product added successfully!",
-    };
-  } catch (error) {
-    console.error("Add product error:", error);
-    return { error: error.message || "Failed to add product" };
-  }
-}
-    // Add to price history if it's a new product OR price changed
-    const shouldAddHistory =
-      !isUpdate || existingProduct.current_price !== newPrice;
 
     if (shouldAddHistory) {
       await supabase.from("price_history").insert({
