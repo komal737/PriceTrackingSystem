@@ -65,7 +65,7 @@ export async function addProduct(formData) {
       const hoursSinceUpdate = (now - lastUpdated) / (1000 * 60 * 60);
 
       // If the data is less than 24 hours old, reuse it!
-      if (hoursSinceUpdate < 24) {
+      if (hoursSinceUpdate < 24 && false) {
         console.log("♻️ SMART CACHE HIT! Saving 1 Firecrawl credit.");
         productData = {
           productName: cachedProduct.name,
