@@ -1,3 +1,4 @@
+//C:\Users\chobh\Desktop\DealDrop\smart-product-price-tracker\app\product\[id]\page.js
 "use client";
 
 import { useEffect, useState } from "react";

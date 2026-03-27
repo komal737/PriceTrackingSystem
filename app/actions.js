@@ -420,4 +420,61 @@ export async function refreshTrendingDeals(categoryInput = null) {
     console.error("Global Refresh failed:", error);
     return { error: error.message };
   }
+  
+}
+
+// ==========================================
+// 10. UPDATE TARGET PRICE + INSTANT EMAIL TRIGGER
+// ==========================================
+export async function updateTargetPrice(productId, targetPrice) {
+  try {
+    const supabase = await createClient();
+    const { data: { user } } = await supabase.auth.getUser();
+
+    if (!user) return { error: "Not authenticated" };
+
+    // 1. Update the database
+    const { data: product, error } = await supabase
+      .from("products")
+      .update({ target_price: parseFloat(targetPrice) })
+      .eq("id", productId)
+      .select()
+      .single();
+
+    if (error) throw error;
+
+    // 2. ⚡ THE MAGIC DEMO TRIGGER ⚡
+    // If the new target is HIGHER than the current price, send email NOW
+    if (product.current_price <= parseFloat(targetPrice)) {
+      console.log("🎯 Target met instantly! Sending email...");
+      
+      try {
+        await sendPriceDropAlert(
+          user.email,
+          product,
+          product.current_price + 500, // Fake "old price" for visual effect
+          product.current_price
+        );
+      } catch (e) {
+        console.error("Email failed:", e.message);
+      }
+    }
+
+    revalidatePath("/cart");
+    return { success: true };
+  } catch (error) {
+    return { error: error.message };
+  }
+}
+
+// 11. REFRESH INDIVIDUAL PRODUCT (Check Now Button)
+export async function refreshProduct(productId) {
+  const supabase = await createClient();
+  const { data: product } = await supabase.from("products").select("url").eq("id", productId).single();
+  
+  if (product) {
+    const formData = new FormData();
+    formData.append("url", product.url);
+    return await addProduct(formData); // This re-uses your scrape + email logic
+  }
 }
