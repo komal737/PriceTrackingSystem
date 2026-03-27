@@ -131,22 +131,23 @@ export async function addProduct(formData) {
 
     if (error) throw error;
 
-    // --- 🚨 THE DEMO HACK: INSTANT EMAIL TRIGGER 🚨 ---
-    // If this is an update, and the new scraped price is lower than the old DB price...
-    if (isUpdate && newPrice < existingUserProduct.current_price) {
-      console.log("🚨 DEMO MODE: Price drop detected! Firing email instantly...");
+    // 1. We check if it's an update AND if the price actually dropped
+    const priceDropped = isUpdate && newPrice < existingUserProduct.current_price;
+
+    if (priceDropped) {
+      console.log("🚨 PRICE DROP DETECTED! Attempting to send email...");
       
       try {
-        // Send the email right now before the page even finishes loading!
         await sendPriceDropAlert(
-          user.email, 
-          product, 
-          existingUserProduct.current_price, 
-          newPrice
+          user.email,            // The person logged in
+          product,               // The product details
+          existingUserProduct.current_price, // The high price you set in Supabase
+          newPrice               // The real lower price found by scraper
         );
-        console.log("✅ Instant email sent successfully!");
+        console.log("✅ Email sent to:", user.email);
       } catch (emailErr) {
-        console.error("❌ Failed to send instant email:", emailErr);
+        // This catches if Resend is down or the API key is wrong
+        console.error("❌ Email Send Failure:", emailErr.message);
       }
     }
     // --------------------------------------------------
