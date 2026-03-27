@@ -175,6 +175,8 @@ export async function addProduct(formData) {
     console.error("Add product error:", error);
     return { error: error.message || "Failed to add product" };
   }
+  revalidatePath("/");
+revalidatePath("/cart");
 }
 
 // ==========================================

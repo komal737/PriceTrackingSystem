@@ -4,7 +4,7 @@ import { createClient } from "@supabase/supabase-js";
 import { scrapeProduct } from "@/lib/firecrawl";
 import { sendPriceDropAlert } from "@/lib/email";
 
-export async function POST(request) {
+export  async function GET(request) {
   try {
     const authHeader = request.headers.get("authorization");
     const cronSecret = process.env.CRON_SECRET;
@@ -69,16 +69,25 @@ export async function POST(request) {
           results.priceChanges++;
         }
 
-        // 2. Determine if we should send an email based on the TARGET PRICE
-        let shouldSendEmail = false;
+        // 2. Determine if we should send an email
+let shouldSendEmail = false;
 
-        if (product.target_price && newPrice <= parseFloat(product.target_price)) {
-          // Send email if it hits your custom target price!
-          shouldSendEmail = true;
-        } else if (!product.target_price && newPrice < oldPrice) {
-          // If you didn't set a target, send email if it dropped at all
-          shouldSendEmail = true;
-        }
+const targetPrice = parseFloat(product.target_price);
+
+// CASE A: User set a specific Target Price (e.g., 20000)
+if (targetPrice > 0) {
+  // Trigger if the new price is lower than OR EQUAL to the target
+  if (newPrice <= targetPrice) {
+    console.log(`🎯 Target Hit! ${newPrice} is <= ${targetPrice}`);
+    shouldSendEmail = true;
+  }
+} 
+
+// CASE B: No target price set, but the price dropped from before
+else if (newPrice < oldPrice) {
+  console.log(`📉 Natural Drop! ${newPrice} is < ${oldPrice}`);
+  shouldSendEmail = true;
+}
 
         // 3. Send the email
         if (shouldSendEmail) {
@@ -118,8 +127,3 @@ export async function POST(request) {
   }
 }
 
-export async function GET() {
-  return NextResponse.json({
-    message: "Price check endpoint is working. Use POST to trigger.",
-  });
-}
